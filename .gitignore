@@ -1,0 +1,25 @@
+# ESP-IDF generated output
+/build/
+/managed_components/
+/components/
+sdkconfig.old
+
+# Desktop preview generated output
+/desktop_preview/.pio/
+/desktop_preview/PaperS3Preview.exe
+/desktop_preview/*.dll
+/desktop_preview/*.log
+/desktop_preview/screenshots/
+/screenshots/
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
