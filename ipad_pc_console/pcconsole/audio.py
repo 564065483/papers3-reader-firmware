@@ -1,10 +1,15 @@
 """系统主音量控制。
 
-安装了 pycaw 时可以读取/设置精确音量；没有安装时退化为模拟音量键（每次约 2%）。
+Windows：安装了 pycaw 时可以读取/设置精确音量；否则退化为模拟音量键（每次约 2%）。
+macOS：通过 AppleScript 精确控制，无需额外依赖。
 """
 from __future__ import annotations
 
-from . import winctl
+from .backend import ctl
+from .common import IS_MAC, IS_WIN, NotSupported
+
+# pycaw 的 COM 接口在主线程创建，调用也需留在主线程
+MAIN_THREAD = not IS_MAC
 
 _endpoint = None
 _error: str | None = None
@@ -14,7 +19,7 @@ def _get_endpoint():
     global _endpoint, _error
     if _endpoint is not None:
         return _endpoint
-    if not winctl.IS_WIN:
+    if not IS_WIN:
         _error = "非 Windows 系统"
         return None
     try:
@@ -33,11 +38,21 @@ def _get_endpoint():
     return _endpoint
 
 
+def _reset() -> None:
+    # 默认播放设备切换（插拔耳机等）后旧的接口会失效，下次重新获取
+    global _endpoint
+    _endpoint = None
+
+
 def available() -> bool:
+    if IS_MAC:
+        return True
     return _get_endpoint() is not None
 
 
 def get_state() -> dict:
+    if IS_MAC:
+        return ctl.volume_state()
     ep = _get_endpoint()
     if ep is None:
         return {"precise": False, "level": None, "muted": None, "reason": _error}
@@ -50,16 +65,13 @@ def get_state() -> dict:
         return {"precise": False, "level": None, "muted": None, "reason": str(exc)}
 
 
-def _reset() -> None:
-    # 默认播放设备切换（插拔耳机等）后旧的接口会失效，下次重新获取
-    global _endpoint
-    _endpoint = None
-
-
 def set_level(level: float) -> dict:
+    if IS_MAC:
+        ctl.set_volume(level)
+        return get_state()
     ep = _get_endpoint()
     if ep is None:
-        raise winctl.NotSupported("精确音量需要安装 pycaw（pip install pycaw）")
+        raise NotSupported("精确音量需要安装 pycaw（pip install pycaw）")
     try:
         ep.SetMasterVolumeLevelScalar(max(0.0, min(1.0, level / 100)), None)
         if level > 0 and ep.GetMute():
@@ -71,9 +83,12 @@ def set_level(level: float) -> dict:
 
 
 def set_mute(muted: bool | None = None) -> dict:
+    if IS_MAC:
+        ctl.set_mute((not ctl.volume_state()["muted"]) if muted is None else muted)
+        return get_state()
     ep = _get_endpoint()
     if ep is None:
-        winctl.hotkey("volumemute")
+        ctl.hotkey("volumemute")
         return get_state()
     try:
         target = (not ep.GetMute()) if muted is None else muted
@@ -85,11 +100,10 @@ def set_mute(muted: bool | None = None) -> dict:
 
 
 def step(delta: int) -> dict:
-    ep = _get_endpoint()
-    if ep is None:
+    if not IS_MAC and _get_endpoint() is None:
         key = "volumeup" if delta > 0 else "volumedown"
         for _ in range(max(1, abs(delta) // 2)):
-            winctl.hotkey(key)
+            ctl.hotkey(key)
         return get_state()
     state = get_state()
     return set_level((state["level"] or 0) + delta)

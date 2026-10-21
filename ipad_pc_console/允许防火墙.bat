@@ -7,7 +7,9 @@ if errorlevel 1 (
   exit /b
 )
 netsh advfirewall firewall delete rule name="iPad PC Console" >nul 2>&1
+netsh advfirewall firewall delete rule name="iPad PC Console Discovery" >nul 2>&1
 netsh advfirewall firewall add rule name="iPad PC Console" dir=in action=allow protocol=TCP localport=8765 profile=private,domain
+netsh advfirewall firewall add rule name="iPad PC Console Discovery" dir=in action=allow protocol=UDP localport=8766 profile=private,domain
 echo.
-echo 已允许端口 8765（专用/域网络）。若你的 Wi-Fi 被识别为“公用网络”，请在 Windows 设置中改为“专用网络”。
+echo 已允许端口 TCP 8765 与 UDP 8766（专用/域网络）。若你的 Wi-Fi 被识别为“公用网络”，请在 Windows 设置中改为“专用网络”。
 pause

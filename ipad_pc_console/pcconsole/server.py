@@ -18,7 +18,9 @@ from urllib.parse import quote
 import psutil
 from aiohttp import WSMsgType, web
 
-from . import __version__, actions, apps, audio, files, screen, sysinfo, winctl
+from . import __version__, actions, apps, audio, discovery, files, icons, screen, sysinfo
+from .backend import ctl
+from .common import CREATE_NO_WINDOW, IS_MAC, IS_WIN, OS_TYPE, NotSupported
 from .config import Config
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -26,6 +28,7 @@ LOCAL_ADDRS = {"127.0.0.1", "::1"}
 PUBLIC_API = {"/api/login", "/api/ping"}
 
 CFG: web.AppKey = web.AppKey("cfg", Config)
+DISCOVERY: web.AppKey = web.AppKey("discovery", asyncio.Task)
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +98,7 @@ async def error_middleware(request: web.Request, handler):
         return await handler(request)
     except web.HTTPException:
         raise
-    except winctl.NotSupported as exc:
+    except NotSupported as exc:
         return _err(501, str(exc))
     except FileNotFoundError as exc:
         return _err(404, str(exc) or "找不到文件")
@@ -112,6 +115,31 @@ async def error_middleware(request: web.Request, handler):
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         return _err(500, f"{type(exc).__name__}: {exc}")
+
+
+_CORS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "X-Token, Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    "Access-Control-Expose-Headers": "X-Mon-Left, X-Mon-Top, X-Mon-Width, X-Mon-Height",
+    "Access-Control-Max-Age": "600",
+}
+
+
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    """允许 iPad 上的同一个网页同时控制多台电脑（跨域访问其它电脑的接口）。
+    鉴权依靠 X-Token 请求头而非 Cookie，因此开放跨域不会带来 CSRF 风险。"""
+    if request.method == "OPTIONS":
+        return web.Response(status=204, headers=_CORS)
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        exc.headers.update(_CORS)
+        raise
+    if request.path.startswith("/api/"):
+        response.headers.update(_CORS)
+    return response
 
 
 def _token_of(request: web.Request) -> str:
@@ -156,15 +184,18 @@ async def api_login(request: web.Request) -> web.Response:
     return _err(403, "PIN 不正确")
 
 
-async def api_ping(_request: web.Request) -> web.Response:
-    return web.json_response({"ok": True, "version": __version__})
+async def api_ping(request: web.Request) -> web.Response:
+    cfg = request.app[CFG]
+    return web.json_response({"ok": True, "version": __version__, "name": cfg["name"],
+                              "os_type": OS_TYPE, "device_id": cfg["device_id"]})
 
 
 async def api_info(request: web.Request) -> web.Response:
     info = await _blocking(sysinfo.basic_info)
-    info.update(version=__version__, windows=winctl.IS_WIN,
+    cfg = request.app[CFG]
+    info.update(version=__version__, windows=IS_WIN, os_type=OS_TYPE, controllable=IS_WIN or IS_MAC,
                 precise_volume=audio.available(), addresses=lan_addresses(),
-                port=request.app[CFG]["port"])
+                port=cfg["port"], device_id=cfg["device_id"], name=cfg["name"])
     return web.json_response(info)
 
 
@@ -207,6 +238,27 @@ async def api_pin(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def api_name(request: web.Request) -> web.Response:
+    data = await _json(request)
+    name = str(data.get("name", "")).strip()[:40]
+    if not name:
+        raise ValueError("名称不能为空")
+    request.app[CFG].set("name", name)
+    return web.json_response({"name": name})
+
+
+async def api_peers(_request: web.Request) -> web.Response:
+    return web.json_response({"peers": discovery.peers()})
+
+
+async def api_icon(request: web.Request) -> web.Response:
+    path = request.query.get("path", "")
+    size = int(request.query.get("size", 96))
+    data = await _blocking(icons.icon_png, path, size)
+    return web.Response(body=data, content_type="image/png",
+                        headers={"Cache-Control": "private, max-age=86400"})
+
+
 async def api_token_reset(request: web.Request) -> web.Response:
     cfg = request.app[CFG]
     cfg.set("token", secrets.token_hex(24))
@@ -225,45 +277,51 @@ async def api_run(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+async def _audio(func, *args):
+    # Windows 的 pycaw 需要在主线程调用；Mac 的 AppleScript 较慢，放到线程池
+    return func(*args) if audio.MAIN_THREAD else await _blocking(func, *args)
+
+
 async def api_volume_get(_request: web.Request) -> web.Response:
-    return web.json_response(audio.get_state())
+    return web.json_response(await _audio(audio.get_state))
 
 
 async def api_volume_post(request: web.Request) -> web.Response:
     data = await _json(request)
     if "level" in data:
-        state = audio.set_level(float(data["level"]))
+        state = await _audio(audio.set_level, float(data["level"]))
     elif "mute" in data:
-        state = audio.set_mute(None if data["mute"] is None else bool(data["mute"]))
+        state = await _audio(audio.set_mute, None if data["mute"] is None else bool(data["mute"]))
     elif "step" in data:
-        state = audio.step(int(data["step"]))
+        state = await _audio(audio.step, int(data["step"]))
     else:
         raise ValueError("缺少参数")
     return web.json_response(state)
 
 
 async def api_brightness_get(_request: web.Request) -> web.Response:
-    return web.json_response({"level": await _blocking(winctl.get_brightness)})
+    return web.json_response({"level": await _blocking(ctl.get_brightness)})
 
 
 async def api_brightness_post(request: web.Request) -> web.Response:
     data = await _json(request)
     try:
-        await _blocking(winctl.set_brightness, int(data["level"]))
+        await _blocking(ctl.set_brightness, int(data["level"]))
     except RuntimeError:
-        raise winctl.NotSupported("这台电脑的显示器不支持软件调节亮度（通常仅笔记本内屏支持）")
+        raise NotSupported("这台电脑的显示器不支持软件调节亮度（通常仅笔记本内屏支持）")
     return web.json_response({"level": int(data["level"])})
 
 
 async def api_clipboard_get(_request: web.Request) -> web.Response:
-    return web.json_response({"text": await _blocking(winctl.get_clipboard)})
+    return web.json_response({"text": await _blocking(ctl.get_clipboard)})
 
 
 async def api_clipboard_post(request: web.Request) -> web.Response:
     data = await _json(request)
-    await _blocking(winctl.set_clipboard, str(data.get("text", "")))
+    await _blocking(ctl.set_clipboard, str(data.get("text", "")))
     if data.get("paste"):
-        await _blocking(winctl.hotkey, "ctrl+v")
+        await asyncio.sleep(0.05)
+        await _blocking(ctl.hotkey, ctl.PASTE_COMBO)
     return web.json_response({"ok": True})
 
 
@@ -293,8 +351,8 @@ async def api_command(request: web.Request) -> web.Response:
     kw = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE, "cwd": cwd,
           "stdin": asyncio.subprocess.DEVNULL}
     encoding = "utf-8"
-    if winctl.IS_WIN:
-        kw["creationflags"] = winctl.CREATE_NO_WINDOW
+    if IS_WIN:
+        kw["creationflags"] = CREATE_NO_WINDOW
         if shell == "powershell":
             proc = await asyncio.create_subprocess_exec(
                 "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
@@ -302,6 +360,8 @@ async def api_command(request: web.Request) -> web.Response:
         else:
             encoding = "oem"
             proc = await asyncio.create_subprocess_shell(cmd, **kw)
+    elif IS_MAC and shell in ("zsh", "bash"):
+        proc = await asyncio.create_subprocess_exec(f"/bin/{shell}", "-lc", cmd, **kw)
     else:
         proc = await asyncio.create_subprocess_shell(cmd, **kw)
     try:
@@ -333,16 +393,21 @@ async def api_process_kill(request: web.Request) -> web.Response:
 
 
 async def api_windows_get(_request: web.Request) -> web.Response:
-    wins = await _blocking(winctl.list_windows)
+    wins = await _blocking(ctl.list_windows)
     names = await _blocking(sysinfo.process_names)
     for w in wins:
-        w["process"] = names.get(w["pid"], "")
+        w.setdefault("process", names.get(w["pid"], ""))
+        if not w.get("icon_path"):
+            try:
+                w["icon_path"] = psutil.Process(w["pid"]).exe()
+            except (psutil.Error, OSError):
+                w["icon_path"] = ""
     return web.json_response({"windows": wins})
 
 
 async def api_windows_post(request: web.Request) -> web.Response:
     data = await _json(request)
-    await _blocking(winctl.window_op, int(data["hwnd"]), str(data["op"]))
+    await _blocking(ctl.window_op, int(data["hwnd"]), str(data["op"]))
     return web.json_response({"ok": True})
 
 
@@ -423,8 +488,7 @@ async def api_frame(request: web.Request) -> web.Response:
                                 int(q.get("q", 70)), q.get("cursor", "1") == "1")
     headers = {"Cache-Control": "no-store", "X-Mon-Left": str(mon["left"]),
                "X-Mon-Top": str(mon["top"]), "X-Mon-Width": str(mon["width"]),
-               "X-Mon-Height": str(mon["height"]),
-               "Access-Control-Expose-Headers": "X-Mon-Left, X-Mon-Top, X-Mon-Width, X-Mon-Height"}
+               "X-Mon-Height": str(mon["height"])}
     return web.Response(body=data, content_type="image/jpeg", headers=headers)
 
 
@@ -434,21 +498,21 @@ async def api_frame(request: web.Request) -> web.Response:
 def handle_input(msg: dict) -> None:
     t = msg.get("t")
     if t == "m":
-        winctl.mouse_move(int(msg.get("x", 0)), int(msg.get("y", 0)))
+        ctl.mouse_move(int(msg.get("x", 0)), int(msg.get("y", 0)))
     elif t == "abs":
-        winctl.mouse_set_pos(int(msg["x"]), int(msg["y"]))
+        ctl.mouse_set_pos(int(msg["x"]), int(msg["y"]))
     elif t == "b":
-        winctl.mouse_button(msg.get("b", "left"), msg.get("a", "click"))
+        ctl.mouse_button(msg.get("b", "left"), msg.get("a", "click"))
     elif t == "s":
-        winctl.mouse_scroll(int(msg.get("y", 0)), int(msg.get("x", 0)))
+        ctl.mouse_scroll(int(msg.get("y", 0)), int(msg.get("x", 0)))
     elif t == "k":
-        winctl.hotkey(str(msg["k"]))
+        ctl.hotkey(str(msg["k"]))
     elif t == "kd":
-        winctl.key_down(str(msg["k"]))
+        ctl.key_down(str(msg["k"]))
     elif t == "ku":
-        winctl.key_up(str(msg["k"]))
+        ctl.key_up(str(msg["k"]))
     elif t == "txt":
-        winctl.type_text(str(msg.get("v", "")))
+        ctl.type_text(str(msg.get("v", "")))
     elif t == "ping":
         pass
     else:
@@ -514,6 +578,8 @@ async def pair_qr(request: web.Request) -> web.Response:
 async def pair_page(request: web.Request) -> web.Response:
     cfg = request.app[CFG]
     urls = pair_urls(cfg)
+    firewall_tip = (f"若 iPad 打不开，请在 Windows 防火墙中允许端口 {cfg['port']}（运行“允许防火墙.bat”）。"
+                    if IS_WIN else "若 iPad 打不开，请在“系统设置 → 网络 → 防火墙”中允许 Python 接收传入连接。")
     blocks = "".join(
         f'<div class="card"><img src="/pair/qr.png?i={i}" alt="QR"><code>{html.escape(u)}</code></div>'
         for i, u in enumerate(urls))
@@ -531,16 +597,25 @@ color:#9aa4b5;font-size:13px}}p{{color:#9aa4b5;line-height:1.8}}</style></head><
 <div class="pin">{html.escape(str(cfg['pin']))}</div>
 <div class="cards">{blocks}</div>
 <p>登录后点 Safari 的“分享 → 添加到主屏幕”，即可像 App 一样全屏使用。<br>
-若 iPad 打不开，请在 Windows 防火墙中允许端口 {cfg['port']}（运行“允许防火墙.bat”）。</p>
+{firewall_tip}</p>
 </body></html>"""
     return web.Response(text=page, content_type="text/html")
 
 
 def create_app(cfg: Config) -> web.Application:
-    app = web.Application(middlewares=[error_middleware, auth_middleware],
+    app = web.Application(middlewares=[cors_middleware, error_middleware, auth_middleware],
                           client_max_size=64 * 1024 * 1024)
     app[CFG] = cfg
     app.on_response_prepare.append(_no_cache)
+
+    async def start_discovery(_app):
+        _app[DISCOVERY] = asyncio.create_task(discovery.run(cfg["device_id"], cfg["name"], cfg["port"]))
+
+    async def stop_discovery(_app):
+        _app[DISCOVERY].cancel()
+
+    app.on_startup.append(start_discovery)
+    app.on_cleanup.append(stop_discovery)
     r = app.router
     r.add_get("/", index)
     r.add_get("/manifest.webmanifest", manifest)
@@ -555,6 +630,9 @@ def create_app(cfg: Config) -> web.Application:
     r.add_post("/api/pages/reset", api_pages_reset)
     r.add_post("/api/pin", api_pin)
     r.add_post("/api/token/reset", api_token_reset)
+    r.add_post("/api/name", api_name)
+    r.add_get("/api/peers", api_peers)
+    r.add_get("/api/icon", api_icon)
     r.add_post("/api/run", api_run)
     r.add_get("/api/volume", api_volume_get)
     r.add_post("/api/volume", api_volume_post)

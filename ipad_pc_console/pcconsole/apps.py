@@ -1,7 +1,8 @@
 """已安装应用列表与启动。
 
-优先使用 PowerShell 的 Get-StartApps，它和“开始”菜单完全一致，
+Windows：优先使用 PowerShell 的 Get-StartApps，它和“开始”菜单完全一致，
 包含传统桌面程序与 Microsoft Store 应用；失败时扫描开始菜单快捷方式。
+macOS：扫描“应用程序”文件夹。
 """
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ import time
 from pathlib import Path
 
 from . import winctl
+from .backend import ctl
+from .common import CREATE_NO_WINDOW, IS_MAC
 
 _cache: list[dict] = []
 _cache_time = 0.0
@@ -50,13 +53,16 @@ def list_apps(refresh: bool = False) -> list[dict]:
     global _cache, _cache_time
     if _cache and not refresh and time.time() - _cache_time < 600:
         return _cache
-    winctl._require()
-    try:
-        apps = _from_start_apps()
-    except Exception:
-        apps = []
-    if not apps:
-        apps = _from_shortcuts()
+    ctl._require()
+    if IS_MAC:
+        apps = ctl.list_apps()
+    else:
+        try:
+            apps = _from_start_apps()
+        except Exception:
+            apps = []
+        if not apps:
+            apps = _from_shortcuts()
     seen, result = set(), []
     for app in sorted(apps, key=lambda a: a["name"].lower()):
         key = app["name"].lower()
@@ -70,12 +76,15 @@ def list_apps(refresh: bool = False) -> list[dict]:
 
 def launch(target: str, args: str = "", cwd: str = "") -> None:
     """启动程序 / 打开文件 / AppsFolder 应用 / URL / ms-settings: 等协议。"""
+    if IS_MAC:
+        ctl.launch(target, args, cwd)
+        return
     winctl._require()
     target = os.path.expandvars(target.strip().strip('"'))
     if not target:
         raise ValueError("没有填写要打开的目标")
     if target.lower().startswith("shell:"):
-        subprocess.Popen(["explorer.exe", target], creationflags=winctl.CREATE_NO_WINDOW)
+        subprocess.Popen(["explorer.exe", target], creationflags=CREATE_NO_WINDOW)
         return
     if args:
         work = os.path.expandvars(cwd) if cwd else (os.path.dirname(target) or None)
@@ -87,4 +96,4 @@ def launch(target: str, args: str = "", cwd: str = "") -> None:
         os.startfile(target)  # type: ignore[attr-defined]
     except FileNotFoundError:
         # 例如 "notepad"、"calc" 这类在 PATH 中的命令
-        subprocess.Popen(target, shell=True, creationflags=winctl.CREATE_NO_WINDOW)
+        subprocess.Popen(target, shell=True, creationflags=CREATE_NO_WINDOW)

@@ -1,5 +1,6 @@
 // 触控板 + 键盘：手势映射为鼠标操作，实时把 iPad 输入（含中文输入法、外接键盘）发送到电脑
-import { api, prefs, savePrefs, ws } from './api.js';
+import { api, isMac, prefs, savePrefs, ws } from './api.js';
+import { icon } from './icons.js';
 import { h, modal, paintRange, showError, switchEl, toast } from './ui.js';
 
 // ---------------- 鼠标移动 / 滚动合帧发送 ----------------
@@ -109,9 +110,13 @@ function bindPad(pad) {
       // 三指轻扫：上=任务视图，下=显示桌面，左/右=切换窗口
       const { x, y } = acc;
       let combo = null;
-      if (Math.abs(y) > Math.abs(x) && Math.abs(y) > 60) combo = y < 0 ? 'win+tab' : 'win+d';
-      else if (Math.abs(x) > 60) combo = x < 0 ? 'alt+shift+tab' : 'alt+tab';
-      if (combo) { ws.send({ t: 'k', k: combo }); toast(`三指手势：${combo}`); }
+      const mac = isMac();
+      if (Math.abs(y) > Math.abs(x) && Math.abs(y) > 60) {
+        combo = y < 0 ? (mac ? 'ctrl+up' : 'win+tab') : (mac ? 'f11' : 'win+d');
+      } else if (Math.abs(x) > 60) {
+        combo = x < 0 ? (mac ? 'cmd+shift+tab' : 'alt+shift+tab') : (mac ? 'cmd+tab' : 'alt+tab');
+      }
+      if (combo) { ws.send({ t: 'k', k: combo }); toast(`三指手势 · ${combo}`); }
     }
     maxN = 0;
   };
@@ -162,12 +167,15 @@ const CODEMAP = {
   Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';',
   Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`', Space: 'space',
 };
-const SPECIAL = [['esc', 'Esc'], ['tab', 'Tab'], ['backspace', '⌫'], ['delete', 'Del'], ['enter', '↵ 回车'],
+const SPECIAL = [['esc', 'esc'], ['tab', '⇥ tab'], ['backspace', '⌫'], ['delete', '⌦'], ['enter', '↩ 回车'],
   ['left', '←'], ['up', '↑'], ['down', '↓'], ['right', '→'], ['home', 'Home'], ['end', 'End'],
-  ['pageup', 'PgUp'], ['pagedown', 'PgDn'], ['space', '空格'], ['printscreen', 'PrtSc'], ['apps', '菜单键']];
+  ['pageup', 'PgUp'], ['pagedown', 'PgDn'], ['space', '空格']];
+const SPECIAL_WIN = [['printscreen', 'PrtSc'], ['apps', '菜单键']];
 
 export function keyboardPanel() {
-  const sticky = { ctrl: false, shift: false, alt: false, win: false };
+  const mac = isMac();
+  const metaName = mac ? 'cmd' : 'win';
+  const sticky = { ctrl: false, shift: false, alt: false, [metaName]: false };
   const modBtns = {};
   const anySticky = () => Object.values(sticky).some(Boolean);
   const paintMods = () => Object.entries(modBtns).forEach(([k, b]) => b.classList.toggle('on', sticky[k]));
@@ -180,7 +188,10 @@ export function keyboardPanel() {
     clearMods();
   };
 
-  for (const [k, label] of [['ctrl', 'Ctrl'], ['shift', 'Shift'], ['alt', 'Alt'], ['win', '⊞ Win']]) {
+  const mods = mac
+    ? [['ctrl', '⌃ control'], ['alt', '⌥ option'], ['shift', '⇧ shift'], ['cmd', '⌘ command']]
+    : [['ctrl', 'Ctrl'], ['shift', '⇧ Shift'], ['alt', 'Alt'], ['win', '⊞ Win']];
+  for (const [k, label] of mods) {
     modBtns[k] = h('button', {
       class: 'btn sm',
       onclick: () => { sticky[k] = !sticky[k]; paintMods(); },
@@ -191,7 +202,7 @@ export function keyboardPanel() {
     h('button', { class: 'btn sm', onclick: () => sendKey(`f${i + 1}`) }, `F${i + 1}`)));
 
   const input = h('input', {
-    class: 'input kb-input', placeholder: '⌨️ 点这里调出键盘，输入内容实时发送到电脑（支持中文输入法 / 外接键盘）',
+    class: 'input kb-input', placeholder: '点这里调出键盘，输入内容实时发送到电脑（支持中文输入法 / 外接键盘）',
     autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: false, enterkeyhint: 'send',
   });
   let composing = false;
@@ -218,7 +229,7 @@ export function keyboardPanel() {
     e.preventDefault();
     const mods = [];
     if (e.ctrlKey) mods.push('ctrl');
-    if (e.metaKey) mods.push(prefs.cmdAsCtrl ? 'ctrl' : 'win');
+    if (e.metaKey) mods.push(mac ? 'cmd' : prefs.cmdAsCtrl ? 'ctrl' : 'win');
     if (e.altKey) mods.push('alt');
     if (e.shiftKey) mods.push('shift');
     sendKey(key, mods);
@@ -239,9 +250,9 @@ export function keyboardPanel() {
 
   return h('div', { class: 'kb' },
     h('div', { class: 'keys' }, Object.values(modBtns),
-      SPECIAL.map(([k, label]) => h('button', { class: 'btn sm', onclick: () => sendKey(k) }, label)),
+      [...SPECIAL, ...(mac ? [] : SPECIAL_WIN)].map(([k, label]) => h('button', { class: 'btn sm', onclick: () => sendKey(k) }, label)),
       h('button', { class: 'btn sm', onclick: () => fkeys.classList.toggle('hidden') }, 'F1–F12'),
-      h('button', { class: 'btn sm', onclick: sendTextDialog }, '📝 发送整段文字')),
+      h('button', { class: 'btn sm tinted', onclick: sendTextDialog }, icon('character'), '发送整段文字')),
     fkeys,
     input);
 }
@@ -256,12 +267,12 @@ function slider(label, key, min, max, step) {
 }
 
 export default {
-  id: 'touchpad', title: '触控板与键盘', short: '触控板', icon: '🖱️', fill: true,
+  id: 'touchpad', title: '触控板与键盘', short: '触控板', icon: 'touchpad', fill: true,
   mount(el) {
     const pad = h('div', { class: 'tp-pad' },
-      h('div', { class: 'tip' }, '单指移动 · 轻点=左键 · 双指轻点=右键 · 双指滑动=滚动 · 长按=拖拽 · 三指上/下/左/右=任务视图/桌面/切换窗口'));
-    const strip = h('div', { class: 'tp-scroll' }, '⇅');
-    const lockBtn = h('button', { class: 'btn sm' }, '🔒 拖拽锁定');
+      h('div', { class: 'tip' }, '单指移动 · 轻点=左键 · 双指轻点=右键 · 双指滑动=滚动 · 长按=拖拽 · 三指上/下/左/右=多任务/桌面/切换应用'));
+    const strip = h('div', { class: 'tp-scroll' }, icon('chevron.updown'));
+    const lockBtn = h('button', { class: 'btn sm' }, icon('hand'), '拖拽锁定');
     let locked = false;
     const setLock = (on) => {
       locked = on;
@@ -277,7 +288,7 @@ export default {
       h('label', { class: 'row small' }, h('span', { class: 'muted' }, '自然滚动'),
         switchEl(prefs.naturalScroll, (v) => { prefs.naturalScroll = v; savePrefs(); })),
       lockBtn,
-      h('button', { class: 'btn sm', onclick: () => click('left', 'double') }, '双击'));
+      h('button', { class: 'btn sm', onclick: () => click('left', 'double') }, icon('cursor'), '双击'));
     const btns = h('div', { class: 'tp-btns' }, holdButton('左键', 'left'), holdButton('中键', 'middle'), holdButton('右键', 'right'));
     el.append(h('div', { class: 'tp' }, tools, pad, strip, btns), keyboardPanel());
   },

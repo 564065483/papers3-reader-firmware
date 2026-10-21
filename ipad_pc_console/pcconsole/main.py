@@ -8,10 +8,13 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, winctl
+from . import __version__
+from .backend import ctl
+from .common import IS_MAC, IS_WIN
 from .config import Config, default_config_path
 
 AUTOSTART_NAME = "iPadPCConsole.vbs"
+LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "com.ipadpcconsole.server.plist"
 
 
 def _startup_file() -> Path:
@@ -28,11 +31,28 @@ def _launch_command(extra: str) -> str:
     return f'"{pythonw if pythonw.exists() else exe}" "{script}" {extra}'
 
 
+def _program_args(extra: list[str]) -> list[str]:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, *extra]
+    return [sys.executable, str(Path(__file__).resolve().parent.parent / "run.py"), *extra]
+
+
 def install_autostart(config_arg: str | None) -> None:
-    if not winctl.IS_WIN:
-        sys.exit("开机自启仅支持 Windows")
-    extra = "--no-browser" + (f' --config "{config_arg}"' if config_arg else "")
-    cmd = _launch_command(extra).replace('"', '""')
+    extra = ["--no-browser"] + (["--config", config_arg] if config_arg else [])
+    if IS_MAC:
+        import plistlib
+        LAUNCH_AGENT.parent.mkdir(parents=True, exist_ok=True)
+        log = Path.home() / "Library" / "Logs" / "iPadPCConsole.log"
+        with open(LAUNCH_AGENT, "wb") as fh:
+            plistlib.dump({"Label": "com.ipadpcconsole.server", "ProgramArguments": _program_args(extra),
+                           "RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False},
+                           "StandardOutPath": str(log), "StandardErrorPath": str(log)}, fh)
+        os.system(f'launchctl unload "{LAUNCH_AGENT}" 2>/dev/null; launchctl load "{LAUNCH_AGENT}"')
+        print(f"已设置登录时自动启动：{LAUNCH_AGENT}")
+        return
+    if not IS_WIN:
+        sys.exit("开机自启仅支持 Windows 和 macOS")
+    cmd = _launch_command(" ".join(f'"{a}"' if " " in a else a for a in extra)).replace('"', '""')
     target = _startup_file()
     target.parent.mkdir(parents=True, exist_ok=True)
     # VBS 用 UTF-16 保存才能正确处理中文路径；窗口样式 0 = 隐藏运行
@@ -41,7 +61,9 @@ def install_autostart(config_arg: str | None) -> None:
 
 
 def remove_autostart() -> None:
-    target = _startup_file()
+    target = LAUNCH_AGENT if IS_MAC else _startup_file()
+    if IS_MAC and target.exists():
+        os.system(f'launchctl unload "{target}" 2>/dev/null')
     if target.exists():
         target.unlink()
         print("已取消开机自启")
@@ -129,7 +151,13 @@ def main() -> None:
             webbrowser.open(pair_url)
         return
 
-    winctl.enable_dpi_awareness()
+    ctl.enable_dpi_awareness()
+    if IS_MAC:
+        perms = ctl.check_permissions(prompt=True)
+        if perms.get("accessibility") is False:
+            print("[!] 尚未授予“辅助功能”权限：系统设置 → 隐私与安全性 → 辅助功能，打开终端 / Python 的开关后重启服务")
+        if perms.get("screen") is False:
+            print("[!] 尚未授予“屏幕录制”权限：远程屏幕需要在 系统设置 → 隐私与安全性 → 屏幕录制 中允许")
     from aiohttp import web
     from .server import create_app
 

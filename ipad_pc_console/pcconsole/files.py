@@ -9,14 +9,16 @@ import subprocess
 from pathlib import Path
 
 from . import winctl
+from .backend import ctl
+from .common import IS_MAC, IS_WIN, NotSupported
 
 
 def quick_places() -> list[dict]:
     home = Path.home()
-    places = [("主目录", "🏠", home)]
-    for label, icon, name in (("桌面", "🖥️", "Desktop"), ("下载", "📥", "Downloads"),
-                              ("文档", "📄", "Documents"), ("图片", "🖼️", "Pictures"),
-                              ("视频", "🎬", "Videos"), ("音乐", "🎵", "Music")):
+    places = [("主目录", "house", home)]
+    for label, icon, name in (("桌面", "display", "Desktop"), ("下载", "download", "Downloads"),
+                              ("文档", "doc", "Documents"), ("图片", "photo", "Pictures"),
+                              ("视频", "film", "Movies" if IS_MAC else "Videos"), ("音乐", "music", "Music")):
         path = home / name
         onedrive = home / "OneDrive" / name
         if not path.is_dir() and onedrive.is_dir():
@@ -28,7 +30,7 @@ def quick_places() -> list[dict]:
 
 def drives() -> list[dict]:
     out = []
-    if winctl.IS_WIN:
+    if IS_WIN:
         mask = ctypes.windll.kernel32.GetLogicalDrives()
         for i, letter in enumerate(string.ascii_uppercase):
             if mask & (1 << i):
@@ -41,7 +43,18 @@ def drives() -> list[dict]:
                     pass
                 out.append(item)
     else:
-        out.append({"name": "/", "path": "/", "dir": True})
+        roots = [Path("/")]
+        if IS_MAC and Path("/Volumes").is_dir():
+            roots += [p for p in Path("/Volumes").iterdir() if p.is_dir() and not p.is_symlink()]
+        for root in roots:
+            item = {"name": "Macintosh HD" if IS_MAC and str(root) == "/" else (root.name or "/"),
+                    "path": str(root), "dir": True}
+            try:
+                usage = shutil.disk_usage(root)
+                item.update(total=usage.total, free=usage.free)
+            except OSError:
+                pass
+            out.append(item)
     return out
 
 
@@ -69,7 +82,7 @@ def list_dir(path: str, show_hidden: bool = False) -> dict:
 
 
 def _is_hidden(entry: os.DirEntry) -> bool:
-    if not winctl.IS_WIN:
+    if not IS_WIN:
         return False
     try:
         attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
@@ -90,6 +103,9 @@ def unique_path(folder: Path, name: str) -> Path:
 
 
 def reveal(path: str) -> None:
+    if IS_MAC:
+        ctl.reveal(path)
+        return
     winctl._require()
     subprocess.Popen(["explorer.exe", f"/select,{path}"])
 
@@ -114,9 +130,12 @@ def mkdir(parent: str, name: str) -> str:
 
 
 def delete_to_recycle_bin(path: str) -> None:
-    """删除到回收站，可在电脑上还原。"""
-    if not winctl.IS_WIN:
-        raise winctl.NotSupported("回收站删除仅在 Windows 上可用")
+    """删除到回收站 / 废纸篓，可在电脑上还原。"""
+    if IS_MAC:
+        ctl.move_to_trash(path)
+        return
+    if not IS_WIN:
+        raise NotSupported("删除到回收站仅支持 Windows 和 Mac")
     from ctypes import wintypes
 
     class SHFILEOPSTRUCTW(ctypes.Structure):

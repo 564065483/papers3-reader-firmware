@@ -1,5 +1,6 @@
 // 远程屏幕：实时画面 + 直接点触操作电脑（点击、右键、拖拽、滚动、双指缩放）
 import { api, prefs, savePrefs, withToken, ws } from './api.js';
+import { icon } from './icons.js';
 import { h, showError, toast } from './ui.js';
 import { keyboardPanel, scrollBy } from './touchpad.js';
 
@@ -12,7 +13,13 @@ let frames = 0, fpsT = performance.now(), lastUrl = null, controller = null;
 function applyView() {
   img.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.s})`;
 }
-function resetView() { view = { s: 1, x: 0, y: 0 }; applyView(); }
+function resetView() {
+  // 带弹簧回弹地恢复到适应屏幕
+  img.classList.add('ease');
+  view = { s: 1, x: 0, y: 0 };
+  applyView();
+  setTimeout(() => img.classList.remove('ease'), 520);
+}
 
 async function loop() {
   if (running) return;
@@ -176,32 +183,34 @@ function immersive(on) {
 }
 
 function select(options, key, onChange) {
-  const sel = h('select', { class: 'input', style: { width: 'auto', minHeight: '38px', padding: '6px 10px' } },
+  const sel = h('select', { class: 'input sm' },
     options.map(([v, label]) => h('option', { value: v, selected: prefs[key] === v }, label)));
   sel.onchange = () => { prefs[key] = Number(sel.value); savePrefs(); onChange?.(); };
   return sel;
 }
 
 export default {
-  id: 'screen', title: '远程屏幕', short: '屏幕', icon: '🖥️', fill: true,
+  id: 'screen', title: '远程屏幕', short: '屏幕', icon: 'display', fill: true,
   mount(el) {
     img = h('img', { alt: '' });
     fpsEl = h('div', { class: 'fps' }, '');
     msgEl = h('div', { class: 'msg' }, '正在连接…');
     stage = h('div', { class: 'scr-stage' }, img, fpsEl, msgEl,
-      h('button', { class: 'btn sm scr-exit', onclick: () => immersive(false) }, '✕ 退出全屏'));
-    monSel = h('select', { class: 'input', style: { width: 'auto', minHeight: '38px', padding: '6px 10px' }, onchange: () => { monIndex = Number(monSel.value); resetView(); } });
-    ctrlBtn = h('button', { class: 'btn sm on', onclick: () => { control = !control; ctrlBtn.classList.toggle('on', control); ctrlBtn.textContent = control ? '👆 触控操作：开' : '👀 仅观看'; } }, '👆 触控操作：开');
+      h('button', { class: 'btn sm scr-exit', onclick: () => immersive(false) }, icon('shrink'), '退出全屏'));
+    monSel = h('select', { class: 'input sm', onchange: () => { monIndex = Number(monSel.value); resetView(); } });
+    const paintCtrl = () => { ctrlBtn.classList.toggle('on', control); ctrlBtn.replaceChildren(icon(control ? 'hand' : 'eye'), control ? '触控操作' : '仅观看'); };
+    ctrlBtn = h('button', { class: 'btn sm on', onclick: () => { control = !control; paintCtrl(); } });
+    paintCtrl();
     kbBox = h('div', { class: 'hidden' }, keyboardPanel());
     const tools = h('div', { class: 'scr-tools' },
       monSel, ctrlBtn,
       select([[40, '画质 低'], [60, '画质 中'], [80, '画质 高'], [92, '画质 极高']], 'screenQuality'),
       select([[5, '5 fps'], [12, '12 fps'], [20, '20 fps'], [30, '30 fps']], 'screenFps'),
       select([[1280, '1280 宽'], [1600, '1600 宽'], [1920, '1920 宽'], [2560, '2560 宽'], [3840, '原始']], 'screenWidth'),
-      h('button', { class: 'btn sm', onclick: resetView }, '⤢ 适应屏幕'),
-      h('button', { class: 'btn sm', onclick: () => kbBox.classList.toggle('hidden') }, '⌨️ 键盘'),
-      h('button', { class: 'btn sm', onclick: () => window.open(withToken('/api/screen/frame?w=0&q=92&mon=' + monIndex), '_blank') }, '📸 截图'),
-      h('button', { class: 'btn sm', onclick: () => immersive(true) }, '⛶ 全屏'));
+      h('button', { class: 'btn sm', onclick: resetView }, icon('fullscreen'), '适应'),
+      h('button', { class: 'btn sm', onclick: () => kbBox.classList.toggle('hidden') }, icon('keyboard'), '键盘'),
+      h('button', { class: 'btn sm', onclick: () => window.open(withToken('/api/screen/frame?w=0&q=92&mon=' + monIndex), '_blank') }, icon('camera'), '截图'),
+      h('button', { class: 'btn sm', onclick: () => immersive(true) }, icon('fullscreen'), '全屏'));
     el.append(tools, stage, kbBox);
     bindGestures();
   },

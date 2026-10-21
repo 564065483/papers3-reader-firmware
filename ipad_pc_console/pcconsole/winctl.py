@@ -8,17 +8,12 @@ from __future__ import annotations
 
 import ctypes
 import subprocess
-import sys
 import time
 
-IS_WIN = sys.platform == "win32"
+from .common import CREATE_NO_WINDOW, IS_WIN, NotSupported, run_quiet
 
-# 让子进程不弹出黑色控制台窗口（pythonw 运行时尤其重要）
-CREATE_NO_WINDOW = 0x08000000 if IS_WIN else 0
-
-
-class NotSupported(RuntimeError):
-    pass
+OS = "windows"
+PASTE_COMBO = "ctrl+v"
 
 
 def _require() -> None:
@@ -52,6 +47,8 @@ VK: dict[str, int] = {
     ";": 0xBA, "=": 0xBB, ",": 0xBC, "-": 0xBD, ".": 0xBE, "/": 0xBF, "`": 0xC0,
     "[": 0xDB, "\\": 0xDC, "]": 0xDD, "'": 0xDE,
 }
+# 方便同一套按钮在 Mac / Windows 间通用：⌘ 视为 Ctrl，⌥ 视为 Alt
+VK.update({"cmd": 0x11, "command": 0x11, "option": 0x12, "opt": 0x12, "meta": 0x5B, "super": 0x5B})
 for _c in "abcdefghijklmnopqrstuvwxyz":
     VK[_c] = ord(_c.upper())
 for _d in "0123456789":
@@ -63,8 +60,8 @@ for _i in range(1, 25):
 _EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2C, 0x2D, 0x2E,
              0x5B, 0x5C, 0x5D, 0x6F, 0x90, 0xA3, 0xA5}
 
-_MODIFIERS = {"ctrl", "control", "shift", "alt", "win", "lwin", "rwin",
-              "lctrl", "rctrl", "lshift", "rshift", "lalt", "ralt"}
+_MODIFIERS = {"ctrl", "control", "shift", "alt", "win", "lwin", "rwin", "cmd", "command",
+              "option", "opt", "meta", "super", "lctrl", "rctrl", "lshift", "rshift", "lalt", "ralt"}
 
 
 def parse_key(name: str) -> int:
@@ -472,14 +469,8 @@ def monitor_off() -> None:
 
 
 def _powershell(script: str, timeout: float = 15) -> str:
-    proc = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-         "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" + script],
-        capture_output=True, timeout=timeout, creationflags=CREATE_NO_WINDOW,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip() or "PowerShell 执行失败")
-    return proc.stdout.decode("utf-8", "replace").strip()
+    return run_quiet(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                      "-Command", "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" + script], timeout)
 
 
 def get_brightness() -> int | None:
@@ -517,3 +508,138 @@ def suspend(hibernate: bool = False) -> None:
 def shutdown_cmd(*args: str) -> None:
     _require()
     subprocess.Popen(["shutdown", *args], creationflags=CREATE_NO_WINDOW)
+
+
+# ---------------------------------------------------------------------------
+# 系统操作（与 macctl.system_action 对应）
+# ---------------------------------------------------------------------------
+SYSTEM_HOTKEYS = {
+    "show_desktop": "win+d", "task_view": "win+tab", "task_manager": "ctrl+shift+esc",
+    "explorer": "win+e", "settings": "win+i", "run_dialog": "win+r", "snip": "win+shift+s",
+    "action_center": "win+n", "emoji_panel": "win+.", "switch_window": "alt+tab",
+    "close_window": "alt+f4", "minimize_all": "win+m", "desktop_left": "ctrl+win+left",
+    "desktop_right": "ctrl+win+right", "new_desktop": "ctrl+win+d",
+}
+
+
+def system_action(name: str, delay: int = 0) -> None:
+    _require()
+    if name in SYSTEM_HOTKEYS:
+        hotkey(SYSTEM_HOTKEYS[name])
+    elif name == "lock":
+        lock()
+    elif name == "sleep":
+        suspend(False)
+    elif name == "hibernate":
+        suspend(True)
+    elif name == "shutdown":
+        shutdown_cmd("/s", "/t", str(max(0, delay)))
+    elif name == "restart":
+        shutdown_cmd("/r", "/t", str(max(0, delay)))
+    elif name == "logoff":
+        shutdown_cmd("/l")
+    elif name == "cancel_shutdown":
+        shutdown_cmd("/a")
+    elif name == "monitor_off":
+        monitor_off()
+    else:
+        raise ValueError(f"未知系统操作：{name}")
+
+
+def media_key(name: str) -> None:
+    """name: playpause / next / prev / stop"""
+    hotkey({"playpause": "playpause", "next": "medianext", "prev": "mediaprev", "stop": "mediastop"}[name])
+
+
+# ---------------------------------------------------------------------------
+# 图标与缩略图：IShellItemImageFactory（支持 exe、快捷方式、Store 应用、图片/视频缩略图）
+# ---------------------------------------------------------------------------
+if IS_WIN:
+    class GUID(ctypes.Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                    ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
+
+    class SIZE(ctypes.Structure):
+        _fields_ = [("cx", wintypes.LONG), ("cy", wintypes.LONG)]
+
+    class BITMAP(ctypes.Structure):
+        _fields_ = [("bmType", wintypes.LONG), ("bmWidth", wintypes.LONG), ("bmHeight", wintypes.LONG),
+                    ("bmWidthBytes", wintypes.LONG), ("bmPlanes", wintypes.WORD),
+                    ("bmBitsPixel", wintypes.WORD), ("bmBits", ctypes.c_void_p)]
+
+    class BITMAPINFOHEADER(ctypes.Structure):
+        _fields_ = [("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG), ("biHeight", wintypes.LONG),
+                    ("biPlanes", wintypes.WORD), ("biBitCount", wintypes.WORD),
+                    ("biCompression", wintypes.DWORD), ("biSizeImage", wintypes.DWORD),
+                    ("biXPelsPerMeter", wintypes.LONG), ("biYPelsPerMeter", wintypes.LONG),
+                    ("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD)]
+
+    def _guid(text: str) -> GUID:
+        g = GUID()
+        ctypes.oledll.ole32.CLSIDFromString(text, ctypes.byref(g))
+        return g
+
+    _IID_IMAGE_FACTORY = None
+    _ole32 = ctypes.WinDLL("ole32")
+    _gdi32 = ctypes.WinDLL("gdi32")
+    _shell32 = ctypes.WinDLL("shell32")
+    _shell32.SHCreateItemFromParsingName.argtypes = (wintypes.LPCWSTR, ctypes.c_void_p,
+                                                     ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p))
+    _shell32.SHCreateItemFromParsingName.restype = ctypes.c_long
+    _gdi32.GetObjectW.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p)
+    _gdi32.GetDIBits.argtypes = (ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT, wintypes.UINT,
+                                 ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT)
+    _gdi32.DeleteObject.argtypes = (ctypes.c_void_p,)
+    user32.GetDC.argtypes = (wintypes.HWND,)
+    user32.GetDC.restype = ctypes.c_void_p
+    user32.ReleaseDC.argtypes = (wintypes.HWND, ctypes.c_void_p)
+
+
+def shell_image(path: str, size: int = 96, icon_only: bool = False) -> bytes:
+    """返回文件 / 应用的图标或缩略图（PNG）。"""
+    _require()
+    global _IID_IMAGE_FACTORY
+    from io import BytesIO
+
+    from PIL import Image
+
+    _ole32.CoInitializeEx(None, 2)  # 每个线程都需要初始化 COM，重复调用无副作用
+    if _IID_IMAGE_FACTORY is None:
+        _IID_IMAGE_FACTORY = _guid("{bcc18b79-ba16-442f-80c4-8a59c30c463b}")
+    item = ctypes.c_void_p()
+    hr = _shell32.SHCreateItemFromParsingName(path, None, ctypes.byref(_IID_IMAGE_FACTORY), ctypes.byref(item))
+    if hr != 0 or not item:
+        raise FileNotFoundError("无法读取图标")
+    vtbl = ctypes.cast(item, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+    get_image = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, SIZE, ctypes.c_int,
+                                   ctypes.POINTER(ctypes.c_void_p))(vtbl[3])
+    release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtbl[2])
+    hbmp = ctypes.c_void_p()
+    try:
+        # SIIGBF_BIGGERSIZEOK = 1, SIIGBF_ICONONLY = 4
+        flags = 1 | (4 if icon_only else 0)
+        hr = get_image(item, SIZE(size, size), flags, ctypes.byref(hbmp))
+    finally:
+        release(item)
+    if hr != 0 or not hbmp:
+        raise FileNotFoundError("无法读取图标")
+    try:
+        bm = BITMAP()
+        _gdi32.GetObjectW(hbmp, ctypes.sizeof(bm), ctypes.byref(bm))
+        w, h = bm.bmWidth, abs(bm.bmHeight)
+        header = BITMAPINFOHEADER(ctypes.sizeof(BITMAPINFOHEADER), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
+        buf = ctypes.create_string_buffer(w * h * 4)
+        hdc = user32.GetDC(None)
+        try:
+            _gdi32.GetDIBits(hdc, hbmp, 0, h, buf, ctypes.byref(header), 0)
+        finally:
+            user32.ReleaseDC(None, hdc)
+    finally:
+        _gdi32.DeleteObject(hbmp)
+    img = Image.frombuffer("RGBA", (w, h), buf.raw, "raw", "BGRA", 0, 1)
+    if bm.bmBitsPixel < 32 or img.getextrema()[3][1] == 0:
+        img = img.convert("RGB")  # 没有透明通道的缩略图
+    img.thumbnail((size, size))
+    out = BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue()

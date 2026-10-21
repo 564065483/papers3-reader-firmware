@@ -2,5 +2,8 @@ aiohttp>=3.9
 psutil>=5.9
 Pillow>=10.0
 qrcode>=7.4
-# 可选：精确读取/设置系统音量（Windows）
+# Windows：精确读取/设置系统音量
 pycaw>=20230407; sys_platform == "win32"
+# macOS：模拟鼠标键盘、截屏、应用图标（Quartz / AppKit）
+pyobjc-framework-Quartz>=9.0; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=9.0; sys_platform == "darwin"
