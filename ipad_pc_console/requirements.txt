@@ -1,0 +1,6 @@
+aiohttp>=3.9
+psutil>=5.9
+Pillow>=10.0
+qrcode>=7.4
+# 可选：精确读取/设置系统音量（Windows）
+pycaw>=20230407; sys_platform == "win32"

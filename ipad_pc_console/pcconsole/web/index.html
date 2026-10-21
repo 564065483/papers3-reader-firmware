@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PC 控制台">
+  <meta name="theme-color" content="#0d1016">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="/static/icon-180.png">
+  <link rel="icon" href="/static/icon-180.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/app.css">
+  <title>PC 控制台</title>
+</head>
+<body>
+  <div id="login" class="login hidden">
+    <div style="font-size:56px">🖥️</div>
+    <h1>连接到电脑</h1>
+    <div class="muted" id="login-tip">请输入电脑端显示的 PIN 码</div>
+    <div class="pin-dots" id="pin-dots"></div>
+    <div class="pin-pad" id="pin-pad"></div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <nav id="nav" class="nav"></nav>
+    <div class="main">
+      <header class="topbar">
+        <h1 id="title">控制台</h1>
+        <div class="stats">
+          <span class="chip"><i class="dot" id="conn-dot"></i><span id="host">连接中…</span></span>
+          <span class="chip" id="st-cpu">CPU --</span>
+          <span class="chip" id="st-mem">内存 --</span>
+          <span class="chip opt" id="st-net">↓ -- ↑ --</span>
+          <span class="chip opt hidden" id="st-bat"></span>
+        </div>
+      </header>
+      <div class="views" id="views"></div>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

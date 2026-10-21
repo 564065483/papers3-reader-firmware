@@ -23,3 +23,10 @@ Thumbs.db
 *.bak
 *.swp
 *~
+
+# iPad PC console
+/ipad_pc_console/.venv/
+/ipad_pc_console/build/
+/ipad_pc_console/dist/
+/ipad_pc_console/*.spec
+__pycache__/

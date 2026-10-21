@@ -1,5 +1,7 @@
 # PaperS3 Reader Firmware
 
+> 另附：[`ipad_pc_console/`](ipad_pc_console/README.md) —— 把闲置 iPad 变成 Windows 电脑控制台的独立小工具。
+
 面向 M5Stack PaperS3（ESP32-S3、4.7 英寸 960×540、16 级灰度墨水屏）的 ESP-IDF 固件工程。默认使用设备真实的 540×960 竖屏坐标，不是网页演示壳。
 
 ## 已写入固件的功能
