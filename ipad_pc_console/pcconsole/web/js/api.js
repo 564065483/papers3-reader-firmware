@@ -10,6 +10,7 @@ const DEFAULT_PREFS = {
   sensitivity: 1.6,       // 触控板灵敏度
   accel: 0.6,             // 指针加速
   scrollSpeed: 1.0,
+  autoFullscreen: false,  // 在 Safari 中打开时，第一次轻点自动进入全屏
   naturalScroll: true,
   cmdAsCtrl: true,        // 控制 Windows 时，iPad 外接键盘的 ⌘ 当作 Ctrl
   screenQuality: 60,
@@ -168,7 +169,24 @@ export async function api(path, { method, body, raw, signal, timeout = 20000 } =
   return raw ? res : res.json();
 }
 
-export const run = (actions) => api('/api/run', { body: { actions } });
+/** 执行按钮动作：优先走已建立的 WebSocket（不排队、无需新建连接），断开时退回 HTTP。 */
+export function run(actions) {
+  if (!ws.connected) return api('/api/run', { body: { actions } });
+  return new Promise((resolve, reject) => {
+    const id = ++runSeq;
+    const timer = setTimeout(() => { pendingRuns.delete(id); reject(new ApiError('电脑没有响应', 0)); }, 30000);
+    pendingRuns.set(id, {
+      resolve: (v) => { clearTimeout(timer); resolve(v); },
+      reject: (e) => { clearTimeout(timer); reject(e); },
+    });
+    if (!ws.send({ t: 'run', id, actions })) {
+      pendingRuns.delete(id); clearTimeout(timer);
+      api('/api/run', { body: { actions } }).then(resolve, reject);
+    }
+  });
+}
+let runSeq = 0;
+const pendingRuns = new Map();
 
 // ---- WebSocket ----
 let sock = null;
@@ -184,6 +202,8 @@ export const ws = {
     sock.onopen = () => { retry = 0; ws.connected = true; bus.emit('ws', true); };
     sock.onclose = () => {
       ws.connected = false; bus.emit('ws', false);
+      for (const p of pendingRuns.values()) p.reject(new ApiError('连接已断开', 0));
+      pendingRuns.clear();
       if (wanted) setTimeout(() => ws.connect(), Math.min(5000, 400 * 2 ** retry++));
     };
     sock.onerror = () => sock.close();
@@ -191,6 +211,11 @@ export const ws = {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.t === 'stats') bus.emit('stats', msg.d);
+      else if (msg.t === 'ack') {
+        const p = pendingRuns.get(msg.id);
+        pendingRuns.delete(msg.id);
+        if (p) { if (msg.ok) p.resolve({ ok: true }); else p.reject(new ApiError(msg.error || '执行失败', 500)); }
+      }
       else if (msg.t === 'err') bus.emit('ws-error', msg.msg);
     };
   },

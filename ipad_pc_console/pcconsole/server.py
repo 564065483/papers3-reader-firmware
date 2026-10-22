@@ -254,9 +254,20 @@ async def api_peers(_request: web.Request) -> web.Response:
 async def api_icon(request: web.Request) -> web.Response:
     path = request.query.get("path", "")
     size = int(request.query.get("size", 96))
-    data = await _blocking(icons.icon_png, path, size)
+    data = await asyncio.get_running_loop().run_in_executor(icons.executor, icons.icon_png, path, size)
     return web.Response(body=data, content_type="image/png",
                         headers={"Cache-Control": "private, max-age=86400"})
+
+
+async def api_icons(request: web.Request) -> web.Response:
+    """批量取图标：一次请求返回多个（data URI），避免几百个图片请求占满浏览器连接。"""
+    data = await _json(request)
+    paths = [str(p) for p in data.get("paths", [])][:60]
+    size = int(data.get("size", 96))
+    loop = asyncio.get_running_loop()
+    results = await asyncio.gather(*(loop.run_in_executor(icons.executor, icons.icon_data_uri, p, size)
+                                     for p in paths))
+    return web.json_response({"icons": dict(zip(paths, results))})
 
 
 async def api_token_reset(request: web.Request) -> web.Response:
@@ -394,14 +405,13 @@ async def api_process_kill(request: web.Request) -> web.Response:
 
 async def api_windows_get(_request: web.Request) -> web.Response:
     wins = await _blocking(ctl.list_windows)
-    names = await _blocking(sysinfo.process_names)
+    brief = await _blocking(sysinfo.proc_brief, [w["pid"] for w in wins])
     for w in wins:
-        w.setdefault("process", names.get(w["pid"], ""))
+        name, exe = brief.get(w["pid"], ("", ""))
+        if not w.get("process"):
+            w["process"] = name
         if not w.get("icon_path"):
-            try:
-                w["icon_path"] = psutil.Process(w["pid"]).exe()
-            except (psutil.Error, OSError):
-                w["icon_path"] = ""
+            w["icon_path"] = exe
     return web.json_response({"windows": wins})
 
 
@@ -412,8 +422,8 @@ async def api_windows_post(request: web.Request) -> web.Response:
 
 
 async def api_apps(request: web.Request) -> web.Response:
-    refresh = request.query.get("refresh") == "1"
-    return web.json_response({"apps": await _blocking(apps.list_apps, refresh)})
+    force = request.query.get("refresh") == "1"
+    return web.json_response({"apps": await _blocking(apps.list_apps, force)})
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +529,20 @@ def handle_input(msg: dict) -> None:
         raise ValueError(f"未知输入消息：{t}")
 
 
+async def _ws_run(ws: web.WebSocketResponse, msg: dict) -> None:
+    reply = {"t": "ack", "id": msg.get("id")}
+    try:
+        steps = msg.get("actions")
+        if not isinstance(steps, list) or not steps:
+            raise ValueError("没有要执行的动作")
+        await actions.run_actions(steps)
+        reply["ok"] = True
+    except Exception as exc:  # noqa: BLE001
+        reply.update(ok=False, error=str(exc))
+    if not ws.closed:
+        await ws.send_json(reply)
+
+
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20, max_msg_size=4 * 1024 * 1024)
     await ws.prepare(request)
@@ -543,6 +567,10 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
                 if msg.get("t") == "stats":
                     want_stats["on"] = bool(msg.get("on", True))
                     continue
+                if msg.get("t") == "run":
+                    # 按钮动作走 WebSocket：不受浏览器 HTTP 连接数限制，响应更快
+                    asyncio.create_task(_ws_run(ws, msg))
+                    continue
                 if msg.get("t") == "txt" and len(str(msg.get("v", ""))) > 20:
                     await _blocking(handle_input, msg)
                 else:
@@ -561,9 +589,13 @@ async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-async def manifest(_request: web.Request) -> web.FileResponse:
-    return web.FileResponse(WEB_DIR / "manifest.webmanifest",
-                            headers={"Content-Type": "application/manifest+json"})
+async def manifest(request: web.Request) -> web.Response:
+    """带有效令牌请求时，主屏幕 App 的启动地址里带上令牌，从主屏幕打开无需再输 PIN。"""
+    data = json.loads((WEB_DIR / "manifest.webmanifest").read_text("utf-8"))
+    token = request.query.get("token", "")
+    if token and secrets.compare_digest(token, request.app[CFG]["token"]):
+        data["start_url"] = f"/?token={token}"
+    return web.json_response(data, content_type="application/manifest+json", dumps=lambda d: json.dumps(d, ensure_ascii=False))
 
 
 async def pair_qr(request: web.Request) -> web.Response:
@@ -602,11 +634,28 @@ color:#9aa4b5;font-size:13px}}p{{color:#9aa4b5;line-height:1.8}}</style></head><
     return web.Response(text=page, content_type="text/html")
 
 
+def _safe_refresh() -> None:
+    try:
+        apps.refresh()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[应用列表] 读取失败：{exc}")
+
+
 def create_app(cfg: Config) -> web.Application:
     app = web.Application(middlewares=[cors_middleware, error_middleware, auth_middleware],
                           client_max_size=64 * 1024 * 1024)
     app[CFG] = cfg
     app.on_response_prepare.append(_no_cache)
+
+    icons.set_cache_dir(cfg.path.parent / "icon-cache")
+    apps.set_cache_file(cfg.path.parent / "apps.json")
+
+    async def warm_apps(_app):
+        # 启动后在后台读取应用列表（并预生成图标），第一次打开“应用”页无需等待
+        if IS_WIN or IS_MAC:
+            asyncio.get_running_loop().run_in_executor(None, _safe_refresh)
+
+    app.on_startup.append(warm_apps)
 
     async def start_discovery(_app):
         _app[DISCOVERY] = asyncio.create_task(discovery.run(cfg["device_id"], cfg["name"], cfg["port"]))
@@ -633,6 +682,7 @@ def create_app(cfg: Config) -> web.Application:
     r.add_post("/api/name", api_name)
     r.add_get("/api/peers", api_peers)
     r.add_get("/api/icon", api_icon)
+    r.add_post("/api/icons", api_icons)
     r.add_post("/api/run", api_run)
     r.add_get("/api/volume", api_volume_get)
     r.add_post("/api/volume", api_volume_post)

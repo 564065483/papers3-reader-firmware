@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 import { confirmDialog, copyText, fmtBytes, h, modal, paintRange, promptDialog, segmented, showError, switchEl, toast } from './ui.js';
 import { reloadPages } from './dashboard.js';
 import { openSwitcher, osName } from './devices.js';
+import { canFullscreen, isStandalone, showInstallGuide } from './display.js';
 
 function row(title, desc, control) {
   return h('div', { class: 'setting' }, h('div', { class: 'grow' }, h('div', {}, title), desc ? h('div', { class: 'small muted' }, desc) : null), control);
@@ -118,9 +119,13 @@ export default {
         }, '注销')),
         row('退出登录', '仅退出这台 iPad', h('button', { class: 'btn sm', onclick: () => { ws.close(); setToken(''); location.reload(); } }, '退出'))),
       aboutCard(),
-      h('div', { class: 'card' }, h('h3', {}, icon('share'), '添加到主屏幕'),
-        h('div', { class: 'muted', style: { lineHeight: 1.8 } },
-          '在 Safari 中点“分享”→“添加到主屏幕”，之后从主屏幕图标打开即可全屏使用，像原生 App 一样。',
-          h('br'), '长时间使用建议接上电源，并在 iPad“设置 → 显示与亮度 → 自动锁定”中延长时间。'))));
+      h('div', { class: 'card' }, h('h3', {}, icon('fullscreen'), '全屏显示'),
+        isStandalone()
+          ? h('div', { class: 'muted' }, '已经以主屏幕 App 方式全屏运行。')
+          : [
+            row('只显示控制台', '添加到主屏幕后像 App 一样全屏打开，没有网址栏', h('button', { class: 'btn sm tinted', onclick: showInstallGuide }, '设置方法')),
+            canFullscreen() ? row('轻点自动全屏', '在 Safari 中打开时，第一次轻点页面就进入全屏', toggle('autoFullscreen')) : null,
+          ],
+        h('div', { class: 'hint', style: { marginTop: '10px' } }, '长时间使用建议接上电源，并在 iPad“设置 → 显示与亮度 → 自动锁定”中延长时间。'))));
   },
 };

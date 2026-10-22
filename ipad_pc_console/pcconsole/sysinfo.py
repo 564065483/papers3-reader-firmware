@@ -126,3 +126,27 @@ def process_names() -> dict[int, str]:
     for p in psutil.process_iter(["pid", "name"]):
         out[p.info["pid"]] = p.info["name"] or ""
     return out
+
+
+_brief: dict[int, tuple[str, str]] = {}
+
+
+def proc_brief(pids: list[int]) -> dict[int, tuple[str, str]]:
+    """只查询给定进程的名称与程序路径（带缓存），比遍历全部进程快得多。"""
+    out = {}
+    for pid in pids:
+        if pid not in _brief:
+            try:
+                p = psutil.Process(pid)
+                name = p.name()
+                try:
+                    exe = p.exe()
+                except (psutil.Error, OSError):
+                    exe = ""
+                _brief[pid] = (name, exe)
+            except (psutil.Error, OSError):
+                _brief[pid] = ("", "")
+        out[pid] = _brief[pid]
+    for pid in [p for p in _brief if p not in out]:
+        del _brief[pid]
+    return out

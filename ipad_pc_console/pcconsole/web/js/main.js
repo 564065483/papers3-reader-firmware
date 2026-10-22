@@ -4,6 +4,7 @@ import {
 import { icon } from './icons.js';
 import { fmtRate, h } from './ui.js';
 import { openSwitcher, osIcon } from './devices.js';
+import { bindAutoFullscreen, fullscreenButton, installBanner, updateManifestLink } from './display.js';
 import dashboard from './dashboard.js';
 import touchpad from './touchpad.js';
 import screenView from './screen.js';
@@ -165,8 +166,14 @@ async function start() {
     started = true;
     buildNav();
     bindStatus();
+    const fsBtn = fullscreenButton();
+    if (fsBtn) document.getElementById('dev-pill').before(fsBtn);
+    const banner = installBanner();
+    if (banner) document.getElementById('views').before(banner);
+    bindAutoFullscreen();
     showTab(prefs.lastTab);
   }
+  updateManifestLink();
   paintDevicePill();
   ws.connect();
   bus.emit('info', state.info);

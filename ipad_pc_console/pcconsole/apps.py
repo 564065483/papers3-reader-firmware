@@ -9,15 +9,19 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
-from . import winctl
+from . import icons, winctl
 from .backend import ctl
 from .common import CREATE_NO_WINDOW, IS_MAC
 
 _cache: list[dict] = []
 _cache_time = 0.0
+_cache_file: Path | None = None
+_refresh_lock = threading.Lock()
+STALE_AFTER = 600  # 秒：超过后在后台刷新，期间仍立即返回旧列表
 _SKIP_WORDS = ("uninstall", "卸载", "readme", "help", "帮助", "documentation", "website")
 
 
@@ -49,10 +53,19 @@ def _from_shortcuts() -> list[dict]:
     return out
 
 
-def list_apps(refresh: bool = False) -> list[dict]:
-    global _cache, _cache_time
-    if _cache and not refresh and time.time() - _cache_time < 600:
-        return _cache
+def set_cache_file(path: Path) -> None:
+    """应用列表保存到磁盘：服务重启后第一次打开“应用”页也能立即显示。"""
+    global _cache, _cache_time, _cache_file
+    _cache_file = path
+    try:
+        data = json.loads(path.read_text("utf-8"))
+        if isinstance(data, list) and data:
+            _cache, _cache_time = data, path.stat().st_mtime
+    except (OSError, ValueError):
+        pass
+
+
+def _scan() -> list[dict]:
     ctl._require()
     if IS_MAC:
         apps = ctl.list_apps()
@@ -70,8 +83,36 @@ def list_apps(refresh: bool = False) -> list[dict]:
             continue
         seen.add(key)
         result.append(app)
-    _cache, _cache_time = result, time.time()
     return result
+
+
+def refresh(max_age: float = 0) -> list[dict]:
+    """重新扫描应用（同一时间只运行一次），写入缓存并在后台预生成图标。
+
+    max_age > 0 时，如果等锁期间别的线程刚刚扫描完（不超过 max_age 秒），直接复用其结果。"""
+    global _cache, _cache_time
+    with _refresh_lock:
+        if max_age and _cache and time.time() - _cache_time < max_age:
+            return _cache
+        result = _scan()
+        _cache, _cache_time = result, time.time()
+        if _cache_file is not None:
+            try:
+                _cache_file.write_text(json.dumps(result, ensure_ascii=False), "utf-8")
+            except OSError:
+                pass
+    icons.prewarm([a["target"] for a in result])
+    return result
+
+
+def list_apps(force: bool = False) -> list[dict]:
+    if force:
+        return refresh()
+    if not _cache:
+        return refresh(max_age=60)  # 启动时的后台扫描若正在进行，等它完成即可，不重复扫描
+    if time.time() - _cache_time > STALE_AFTER and not _refresh_lock.locked():
+        threading.Thread(target=refresh, daemon=True).start()
+    return _cache
 
 
 def launch(target: str, args: str = "", cwd: str = "") -> None:

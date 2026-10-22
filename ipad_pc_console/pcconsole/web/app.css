@@ -566,3 +566,70 @@ canvas.spark { width: 100%; height: 68px; display: block; margin-top: 10px; }
 .dev-row .ic svg.sf { width: 24px; height: 24px; color: var(--text); }
 .dev-row.active { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .dev-row .check { color: var(--accent); width: 22px; height: 22px; }
+
+/* ===== 启动反馈 / 刷新 ===== */
+.app-cell.launch .avatar, .win-card.launch .avatar { animation: launchPop .55s var(--spring); }
+@keyframes launchPop { 35% { transform: scale(.82); } 70% { transform: scale(1.08); } }
+.app-cell { content-visibility: auto; contain-intrinsic-size: 120px 130px; }
+.btn.spin svg { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.chip.icon-chip { padding: 7px 10px; cursor: pointer; }
+.chip.icon-chip svg.sf { width: 17px; height: 17px; opacity: 1; }
+
+/* ===== 窗口切换器 ===== */
+.win-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.win-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  padding: 22px 14px 16px; border-radius: 24px; cursor: pointer; min-height: 178px;
+  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke); box-shadow: inset 0 1px 0 var(--hi), var(--shadow);
+  transition: transform .5s var(--spring), box-shadow .3s; animation: rowIn .5s var(--spring-soft) backwards;
+}
+.win-card:active { transform: scale(.95); transition-duration: .12s; }
+.win-card.fg { box-shadow: inset 0 0 0 2px var(--accent), var(--shadow); }
+.win-card.min { opacity: .72; }
+.win-card .avatar { margin-bottom: 4px; }
+.win-app { font-weight: 650; font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.win-title { font-size: 12.5px; color: var(--muted); line-height: 1.3; max-height: 2.6em; overflow: hidden; word-break: break-word; }
+.win-state { font-size: 11.5px; color: var(--accent); font-weight: 600; min-height: 1em; }
+.win-close, .win-more {
+  position: absolute; top: 8px; width: 30px; height: 30px; border-radius: 50%; border: 0; cursor: pointer;
+  display: grid; place-items: center; background: var(--fill); color: var(--muted);
+}
+.win-close { right: 8px; }
+.win-more { left: 8px; }
+.win-close svg, .win-more svg { width: 15px; height: 15px; }
+.win-close:active { background: var(--danger); color: #fff; }
+
+/* ===== 控制台底部程序坞 ===== */
+.dock { margin: 22px auto 0; padding: 10px 14px 8px; border-radius: 28px; max-width: 100%; width: fit-content; display: flex; align-items: center; gap: 10px; }
+.dock-title { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--muted); font-weight: 600; padding: 0 8px 0 2px; border-right: .5px solid var(--stroke); white-space: nowrap; }
+.dock-title svg { width: 20px; height: 20px; }
+.dock-items { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
+.dock-items::-webkit-scrollbar { display: none; }
+.dock-item {
+  position: relative; border: 0; background: transparent; cursor: pointer; padding: 4px 4px 12px; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; width: 66px; flex: none;
+  transition: transform .5s var(--spring);
+}
+.dock-item:active { transform: scale(.86); transition-duration: .1s; }
+.dock-item .avatar { border-radius: 12px; }
+.dock-name { font-size: 11px; color: var(--muted); max-width: 62px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-item::after { content: ""; position: absolute; bottom: 2px; width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.dock-item.active::after { background: var(--accent); }
+
+/* ===== 全屏提示条与设置指南 ===== */
+.banner { display: flex; align-items: center; gap: 12px; margin: 0 6px 12px; padding: 10px 10px 10px 16px; border-radius: 22px; animation: rowIn .6s var(--spring-soft) backwards; }
+.banner > svg.sf { width: 22px; height: 22px; color: var(--accent); }
+.banner.out { animation: toastOut .35s var(--ease-in) forwards; }
+.guide-step { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border-radius: 18px; background: var(--fill); }
+.guide-step .t { font-weight: 650; }
+.guide-num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none; }
+.guide-ic { width: 44px; height: 44px; border-radius: 12px; background: var(--glass-2); display: grid; place-items: center; color: var(--accent); flex: none; }
+.guide-ic svg { width: 26px; height: 26px; }
+@media (max-width: 700px) { .banner .muted { display: none; } }
+
+/* 性能：大量重复的格子 / 列表项不做实时模糊（每个模糊层都要单独渲染，几百个会明显卡顿） */
+.app-cell, .item { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--glass-2); box-shadow: inset 0 1px 0 var(--hi); }
+.avatar.has-img > span { display: none; }
+.dock { position: sticky; bottom: 4px; z-index: 5; }

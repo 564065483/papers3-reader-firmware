@@ -1,6 +1,7 @@
 // 远程屏幕：实时画面 + 直接点触操作电脑（点击、右键、拖拽、滚动、双指缩放）
 import { api, prefs, savePrefs, withToken, ws } from './api.js';
 import { icon } from './icons.js';
+import { enterFullscreen, exitFullscreen, isFullscreen, isStandalone } from './display.js';
 import { h, showError, toast } from './ui.js';
 import { keyboardPanel, scrollBy } from './touchpad.js';
 
@@ -178,8 +179,8 @@ async function loadMonitors() {
 
 function immersive(on) {
   document.body.classList.toggle('immersive', on);
-  if (on) document.documentElement.requestFullscreen?.().catch(() => {});
-  else if (document.fullscreenElement) document.exitFullscreen?.();
+  if (on && !isFullscreen() && !isStandalone()) enterFullscreen();
+  else if (!on && isFullscreen() && !prefs.autoFullscreen) exitFullscreen();
 }
 
 function select(options, key, onChange) {

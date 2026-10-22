@@ -42,7 +42,9 @@
 ### iPad
 
 1. 确保 iPad 与电脑在**同一个 Wi‑Fi / 局域网**，用 iPad 相机扫电脑端配对页的二维码即可直接登录；或在 Safari 输入电脑窗口上显示的地址（如 `http://192.168.1.23:8765`）后输入 PIN。
-2. Safari 中点 **分享 → 添加到主屏幕**，以后从主屏幕图标打开就是全屏 App。
+2. **只显示控制台、隐藏网址栏**：
+   - 推荐：Safari 中点 **分享 → 添加到主屏幕**，以后从主屏幕图标打开就是全屏 App（登录状态会自动带过去，无需再输 PIN）；
+   - 临时：点右上角的全屏按钮；或在 设置 → 全屏显示 中打开“轻点自动全屏”。Safari 全屏时弹出键盘可能会退出全屏，长期使用请用主屏幕方式。
 
 ### 控制多台电脑（Windows + Mac）
 
@@ -67,6 +69,8 @@
 ## 使用技巧
 
 - **添加按钮**：控制台页点“编辑”或长按任意按钮。“打开应用”可以填 `notepad.exe`、`chrome`、完整 exe 路径；Mac 上直接写应用名，如 `Safari`、`微信`，或 `/Applications/xxx.app`。也可以在“应用”页点 📌 一键固定。路径支持 `%USERPROFILE%`、`~` 等写法；`ms-settings:display`、`https://…` 等协议也能打开。
+- **快速切换窗口**：控制台底部的程序坞显示电脑上正在运行的窗口，轻点即切换，长按可最小化、最大化或关闭；“应用 → 打开的窗口”以卡片形式列出全部窗口，轻点卡片即切换。
+- **应用页“最近使用”**：最近打开过的应用显示在最上方。应用列表在服务启动时就在后台读取并缓存到磁盘，图标也会预先生成，打开应用页无需等待；安装了新软件后点刷新按钮即可。
 - **宏**：一个按钮里可以加多个步骤，例如“打开微信 → 等待 1500ms → 快捷键 ctrl+f → 输入文字”。
 - **快捷键写法**：Windows 如 `ctrl+shift+esc`、`win+shift+s`、`alt+tab`；Mac 如 `cmd+c`、`cmd+shift+4`、`ctrl+up`、`ctrl+cmd+f`。可用键名：ctrl shift alt/option win/cmd enter esc tab space backspace delete home end pageup pagedown up down left right f1–f24 以及字母、数字和 `; = , - . / [ ] \ '`；媒体键 playpause medianext mediaprev volumeup volumedown volumemute（Mac 另有 brightnessup / brightnessdown）。
 - **管理员窗口（Windows）**：Windows 不允许普通程序操作“以管理员身份运行”的窗口（如任务管理器）。如需控制它们，请以管理员身份运行 `启动控制台.bat`。

@@ -2,6 +2,7 @@
 import { api, isMac, run, state } from './api.js';
 import { ICON_NAMES, glyph, icon } from './icons.js';
 import { confirmDialog, h, modal, onLongPress, promptDialog, segmented, sheet, showError, toast } from './ui.js';
+import { createDock } from './running.js';
 
 // 苹果系统色
 export const COLORS = {
@@ -49,7 +50,7 @@ function actionTypes() {
   };
 }
 
-let root, grid, head, seg, pages = [], pageIdx = 0, editing = false;
+let root, grid, head, seg, dock, pages = [], pageIdx = 0, editing = false;
 
 const uid = () => Math.random().toString(36).slice(2, 12);
 
@@ -186,7 +187,7 @@ function render() {
   renderGrid(true);
   root.querySelector('.hint').textContent = editing
     ? '轻点按钮进行修改，‹ › 调整顺序；轻点当前页面名称可以重命名、移动或删除页面。'
-    : '长按任意按钮可直接编辑 · 左右轻扫切换页面';
+    : '长按任意按钮可直接编辑 · 左右轻扫切换页面 · 底部程序坞轻点即可切换窗口';
 }
 
 // 左右滑动切换页面
@@ -348,8 +349,11 @@ export default {
     root = el;
     head = h('div', { class: 'dash-head' });
     grid = h('div', { class: 'tiles' });
-    el.append(head, grid, h('div', { class: 'hint', style: { marginTop: '18px', textAlign: 'center' } }));
+    dock = createDock();
+    el.append(head, grid, h('div', { class: 'hint', style: { marginTop: '18px', textAlign: 'center' } }), dock);
     bindSwipe(el);
     load();
   },
+  show() { dock?.start(); },
+  hide() { dock?.stop(); },
 };

@@ -44,6 +44,8 @@ export const ICONS = {
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5l5 5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   minus: '<path d="M5 12h14"/>',
+  'plus.square': '<rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M12 8v8M8 12h8"/>',
+  dock: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M6.5 16.5h11" stroke-width="3"/>',
   xmark: '<path d="M6 6l12 12M18 6L6 18"/>',
   xcircle: '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
