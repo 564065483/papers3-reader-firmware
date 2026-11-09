@@ -39,18 +39,24 @@ export function showInstallGuide() {
     h('div', { class: 'guide-num' }, String(n)),
     h('div', { class: 'guide-ic' }, icon(iconName)),
     h('div', { class: 'grow' }, h('div', { class: 't' }, title), h('div', { class: 'small muted' }, text)));
+  const android = /Android/i.test(navigator.userAgent);
+  const homeSteps = android
+    ? [step(1, 'ellipsis', '点浏览器右上角的菜单「⋮」', 'Chrome、Edge 等浏览器都在右上角'),
+      step(2, 'plus.square', '选择「添加到主屏幕」或「安装应用」', '名称可以改成你喜欢的，比如「电脑控制台」'),
+      step(3, 'app', '以后从主屏幕图标打开', '安卓浏览器通过 http 访问时，图标打开后可能仍显示地址栏；可以在 设置 → 全屏显示 中打开「轻点自动全屏」')]
+    : [step(1, 'share', '点 Safari 的「分享」按钮', 'iPhone 在屏幕底部中间，iPad 在地址栏右侧；图标是方框加向上箭头'),
+      step(2, 'plus.square', '选择「添加到主屏幕」', '如果没看到，在分享菜单里往下滑；名称可以改成「电脑控制台」'),
+      step(3, 'app', '以后从主屏幕图标打开', '像原生 App 一样全屏显示，没有网址栏，登录状态会自动带过去')];
   modal({
     title: '只显示控制台（隐藏网址栏）',
     body: h('div', {},
-      h('div', { class: 'section-title' }, '方法一：添加到主屏幕（推荐，永久有效）'),
-      h('div', { class: 'list' },
-        step(1, 'share', '点 Safari 的「分享」按钮', '在地址栏右侧，或屏幕右上角的方框加箭头图标'),
-        step(2, 'plus.square', '选择「添加到主屏幕」', '名称可以改成你喜欢的，比如「电脑控制台」'),
-        step(3, 'app', '以后从主屏幕图标打开', '会像原生 App 一样全屏显示，没有网址栏，还能在多任务里单独切换')),
-      h('div', { class: 'section-title' }, '方法二：临时全屏'),
+      h('div', { class: 'section-title' }, android ? '方法一：添加到主屏幕' : '方法一：添加到主屏幕（推荐，永久有效）'),
+      h('div', { class: 'list' }, homeSteps),
+      h('div', { class: 'section-title' }, android ? '方法二：全屏（安卓推荐）' : '方法二：临时全屏'),
       h('div', { class: 'list' },
         step(1, 'fullscreen', '点右上角的全屏按钮', canFullscreen()
-          ? '立即进入全屏；从屏幕左上角点 × 或向下轻扫可退出。Safari 全屏时弹出键盘可能会自动退出全屏'
+          ? (android ? '立即进入全屏，从屏幕边缘滑动可以退出；也可以在设置里打开「轻点自动全屏」，每次打开都自动全屏'
+            : '立即进入全屏；从屏幕左上角点 × 或向下轻扫可退出。Safari 全屏时弹出键盘可能会自动退出全屏')
           : '当前浏览器不支持网页全屏，请使用方法一'))),
     buttons: canFullscreen()
       ? [{ label: '稍后', value: null }, { label: '现在全屏', kind: 'primary', onClick: () => { enterFullscreen(); } }]

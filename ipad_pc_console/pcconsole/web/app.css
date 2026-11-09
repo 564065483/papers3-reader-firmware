@@ -633,3 +633,43 @@ canvas.spark { width: 100%; height: 68px; display: block; margin-top: 10px; }
 .app-cell, .item { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--glass-2); box-shadow: inset 0 1px 0 var(--hi); }
 .avatar.has-img > span { display: none; }
 .dock { position: sticky; bottom: 4px; z-index: 5; }
+
+/* ===== 手机竖屏适配 ===== */
+@media (max-width: 700px) {
+  /* 触控板页：内容比屏幕高，改为可滚动，触控区域保证足够大 */
+  .view.fill { overflow-y: auto; }
+  .tp { flex: none; grid-template-columns: 1fr 50px; gap: 10px; }
+  .tp-pad, .tp-scroll { min-height: 44vh; border-radius: 26px; }
+  .tp-tools { gap: 8px; }
+  .tp-tools > label.row { min-width: 0 !important; flex: 1 1 100%; }
+  .tp-tools > label.row:has(.switch) { flex: 0 0 auto; }
+  .tp-btns { grid-template-columns: 1fr 76px 1fr; gap: 10px; }
+  .tp-btns button { height: 62px; border-radius: 20px; }
+  .scr-stage { min-height: 56vh; }
+  /* 程序坞不再悬浮，避免盖住按钮 */
+  .dock { position: static; width: 100%; padding: 8px 10px; }
+  .dock-title { display: none; }
+  /* 提示条：文字一行，按钮换到下一行 */
+  .banner { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .banner .grow { flex: 1 1 calc(100% - 40px); }
+  .banner .btn.primary { margin-left: auto; }
+  .setting { flex-wrap: wrap; }
+  .setting .grow { flex: 1 1 100%; }
+  .setting input[type="range"] { width: 100%; }
+  .setting > .row { flex: 1 1 100%; }
+  .cards { grid-template-columns: 1fr; }
+  .win-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .app-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .win-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-cell { padding: 14px 4px 10px; }
+  .app-cell .avatar { width: 50px !important; height: 50px !important; }
+  .nav button { min-width: 58px; font-size: 10.5px; }
+  .modal header { padding: 18px 18px 4px; }
+  .modal .body { padding: 10px 18px; }
+  .modal footer { padding: 10px 18px 18px; }
+  .step { grid-template-columns: 1fr auto; }
+  .step > select, .step > .extra { grid-column: 1 / -1; }
+  .step > div:empty { display: none; }
+  .editor-top { flex-direction: column; }
+  .preview-tile { width: 140px; }
+}
